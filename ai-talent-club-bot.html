@@ -1,0 +1,435 @@
+<!doctype html>
+<html lang="en">
+<head>
+  <meta charset="utf-8" />
+  <meta name="viewport" content="width=device-width,initial-scale=1" />
+  <title>SIS AI Talent Club - Teacher Assistant</title>
+  <style>
+    body { font-family: Arial, sans-serif; background:#f6f7fb; margin:0; }
+    .wrap { max-width: 980px; margin: 0 auto; padding: 18px; }
+    .card { background:#fff; border-radius:18px; box-shadow: 0 10px 24px rgba(0,0,0,.08); overflow:hidden; }
+    .header { padding:14px 16px; background:#101828; color:#fff; display:flex; justify-content:space-between; gap:12px; align-items:center; }
+    .brand { display:flex; gap:12px; align-items:center; }
+    .logo {
+      width:44px; height:44px; border-radius:12px; background:#fff; display:flex; align-items:center; justify-content:center;
+      overflow:hidden; flex:0 0 auto;
+    }
+    .logo svg { width:36px; height:36px; }
+    .title b { font-size: 16px; display:block; }
+    .title small { opacity:.85; }
+    .controls { display:flex; gap:10px; align-items:center; }
+    .btn { padding:10px 12px; border-radius: 12px; border:0; background:#111827; color:#fff; cursor:pointer; }
+    .btn.secondary { background:#334155; }
+    .toggle { display:flex; border:1px solid rgba(255,255,255,.25); border-radius: 999px; overflow:hidden; }
+    .toggle button { border:0; padding:8px 10px; background:transparent; color:#fff; cursor:pointer; font-size:12px; }
+    .toggle button.active { background:rgba(255,255,255,.18); }
+    .chips { padding: 10px 12px 0; display:flex; gap:8px; flex-wrap:wrap; background:#fff; }
+    .chip { background:#f3f4f6; border:1px solid #e5e7eb; border-radius:999px; padding:8px 10px; cursor:pointer; font-size:13px; }
+    .chat { height: 430px; overflow:auto; padding: 16px; background: linear-gradient(#fff, #fbfbff); }
+    .row { display:flex; margin: 10px 0; }
+    .bot { justify-content:flex-start; }
+    .user { justify-content:flex-end; }
+    .bubble { max-width: 78%; padding: 10px 12px; border-radius: 14px; line-height:1.35; white-space:pre-wrap; }
+    .bot .bubble { background:#eef2ff; border:1px solid #dbeafe; }
+    .user .bubble { background:#dcfce7; border:1px solid #bbf7d0; }
+    .typing {
+      display:inline-flex; gap:4px; align-items:center;
+    }
+    .dot {
+      width:6px; height:6px; border-radius:50%;
+      background:#475569; opacity:.6;
+      animation: bounce 1s infinite;
+    }
+    .dot:nth-child(2){ animation-delay:.12s; }
+    .dot:nth-child(3){ animation-delay:.24s; }
+    @keyframes bounce {
+      0%, 80%, 100% { transform: translateY(0); opacity:.45; }
+      40% { transform: translateY(-4px); opacity:.9; }
+    }
+    .inputbar { display:flex; gap:10px; padding: 12px; border-top:1px solid #eee; background:#fff; }
+    input { flex:1; padding: 12px; border-radius: 12px; border:1px solid #e5e7eb; outline:none; }
+    .send { padding: 12px 14px; border-radius: 12px; border:0; background:#111827; color:#fff; cursor:pointer; }
+    .hint { font-size:12px; opacity:.75; margin-left:8px; }
+  </style>
+</head>
+<body>
+  <div class="wrap">
+    <div class="card">
+      <div class="header">
+        <div class="brand">
+          <!-- SIS LOGO PLACEHOLDER:
+               Replace this <svg> with your real SIS logo image if you want.
+               Easiest: change the .logo content to <img src="sis-logo.png" style="width:100%;height:100%;object-fit:contain;background:#fff" />
+               and upload sis-logo.png with this HTML. -->
+          <div class="logo" aria-label="SIS Logo">
+            <svg viewBox="0 0 64 64" role="img" aria-label="SIS">
+              <circle cx="32" cy="32" r="28" fill="#111827"/>
+              <text x="32" y="38" text-anchor="middle" font-family="Arial" font-size="18" fill="#ffffff">SIS</text>
+            </svg>
+          </div>
+
+          <div class="title">
+            <b id="hdrTitle">SIS AI Talent Club • Teacher Assistant (Mon 2:10–2:50)</b>
+            <small id="hdrSub">Welcome bot • Name saved on this device • Bn/En</small>
+          </div>
+        </div>
+
+        <div class="controls">
+          <div class="toggle" title="Language">
+            <button id="enBtn" class="active">EN</button>
+            <button id="bnBtn">BN</button>
+          </div>
+          <button class="btn secondary" id="missionBtn">Today’s mission</button>
+          <button class="btn" id="resetBtn" title="Forget saved name">Reset</button>
+        </div>
+      </div>
+
+      <div class="chips" id="chips"></div>
+
+      <div id="chat" class="chat"></div>
+
+      <div class="inputbar">
+        <input id="msg" placeholder="Type your message… (Example: My name is Aisha)" />
+        <button class="send" id="send">Send</button>
+      </div>
+    </div>
+    <div class="hint" id="footerHint"></div>
+  </div>
+
+<script>
+  const chatEl = document.getElementById('chat');
+  const msgEl = document.getElementById('msg');
+  const sendEl = document.getElementById('send');
+  const resetBtn = document.getElementById('resetBtn');
+  const chipsEl = document.getElementById('chips');
+  const enBtn = document.getElementById('enBtn');
+  const bnBtn = document.getElementById('bnBtn');
+  const missionBtn = document.getElementById('missionBtn');
+  const footerHint = document.getElementById('footerHint');
+
+  const NAME_KEY = "ai_talent_club_student_name_v1";
+  const LANG_KEY = "ai_talent_club_lang_v1";
+
+  let studentName = localStorage.getItem(NAME_KEY) || "";
+  let lang = localStorage.getItem(LANG_KEY) || "en"; // "en" | "bn"
+
+  function normalize(s){ return (s || "").trim().toLowerCase(); }
+
+  function extractName(input) {
+    const text = input.trim();
+
+    // English patterns
+    const patternsEN = [
+      /my name is\s+([a-zA-Z][a-zA-Z\s'-]{1,30})/i,
+      /i am\s+([a-zA-Z][a-zA-Z\s'-]{1,30})/i,
+      /i'm\s+([a-zA-Z][a-zA-Z\s'-]{1,30})/i,
+      /name\s*:\s*([a-zA-Z][a-zA-Z\s'-]{1,30})/i,
+    ];
+
+    // Bangla-friendly quick patterns: "আমার নাম ___", "নাম: ___"
+    const patternsBN = [
+      /আমার নাম\s+([^\n\r]{1,30})/i,
+      /নাম\s*[:：]\s*([^\n\r]{1,30})/i,
+    ];
+
+    const patterns = [...patternsEN, ...patternsBN];
+    for (const p of patterns) {
+      const m = text.match(p);
+      if (m && m[1]) return m[1].trim();
+    }
+    return "";
+  }
+
+  function withName(lineEN, lineBN){
+    const name = studentName ? studentName : (lang === "bn" ? "বন্ধু" : "friend");
+    const line = (lang === "bn" ? lineBN : lineEN);
+    return line.replaceAll("{name}", name);
+  }
+
+  function addBubble(text, who="bot") {
+    const row = document.createElement('div');
+    row.className = `row ${who}`;
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+    bubble.textContent = text;
+    row.appendChild(bubble);
+    chatEl.appendChild(row);
+    chatEl.scrollTop = chatEl.scrollHeight;
+    return bubble;
+  }
+
+  // Typing indicator: show "Assistant is typing…" + dots, then replace with final text.
+  function addTypingBubble() {
+    const row = document.createElement('div');
+    row.className = 'row bot';
+    const bubble = document.createElement('div');
+    bubble.className = 'bubble';
+
+    const label = document.createElement('div');
+    label.textContent = (lang === "bn") ? "Assistant টাইপ করছে…" : "Assistant is typing…";
+
+    const typing = document.createElement('div');
+    typing.className = 'typing';
+    typing.setAttribute('aria-hidden', 'true');
+    typing.innerHTML = `<span class="dot"></span><span class="dot"></span><span class="dot"></span>`;
+
+    bubble.appendChild(label);
+    bubble.appendChild(typing);
+    row.appendChild(bubble);
+    chatEl.appendChild(row);
+    chatEl.scrollTop = chatEl.scrollHeight;
+
+    return bubble;
+  }
+
+  function setLang(newLang){
+    lang = newLang;
+    localStorage.setItem(LANG_KEY, lang);
+    enBtn.classList.toggle("active", lang === "en");
+    bnBtn.classList.toggle("active", lang === "bn");
+    refreshUIStrings();
+  }
+
+  function refreshUIStrings(){
+    // Input placeholder + footer hint
+    msgEl.placeholder = (lang === "bn")
+      ? "আপনার বার্তা লিখুন… (উদাহরণ: আমার নাম আয়েশা)"
+      : "Type your message… (Example: My name is Aisha)";
+
+    footerHint.textContent = (lang === "bn")
+      ? "টিপস: “Today’s mission” চাপুন, অথবা জিজ্ঞেস করুন: ক্লাসের সময় / কী বানাবো / নিয়ম"
+      : "Tip: Click “Today’s mission”, or ask: class time / what we will make / rules";
+
+    // Chips
+    const chips = (lang === "bn")
+      ? [
+          { t: "AI Talent Club কী?", q: "AI Talent Club কী?" },
+          { t: "৩ মাসে কী বানাবো?", q: "৩ মাসে কী বানাবো?" },
+          { t: "ক্লাস কখন?", q: "ক্লাস কখন?" },
+          { t: "৪০ জনে ল্যাপটপ কীভাবে?", q: "৪০ জনে ল্যাপটপ কীভাবে?" },
+          { t: "বাড়িতে কী করবো?", q: "বাড়িতে কী করবো?" },
+        ]
+      : [
+          { t: "What is AI Talent Club?", q: "What is AI Talent Club?" },
+          { t: "What will we make in 3 months?", q: "What will we make in 3 months?" },
+          { t: "When is the class?", q: "When is the class?" },
+          { t: "How do laptops work for 40 students?", q: "How do laptops work for 40 students?" },
+          { t: "What should I do at home?", q: "What should I do at home?" },
+        ];
+
+    chipsEl.innerHTML = "";
+    chips.forEach(c => {
+      const el = document.createElement('div');
+      el.className = 'chip';
+      el.textContent = c.t;
+      el.dataset.q = c.q;
+      el.addEventListener('click', () => {
+        msgEl.value = c.q;
+        msgEl.focus();
+      });
+      chipsEl.appendChild(el);
+    });
+
+    // Mission button text
+    missionBtn.textContent = (lang === "bn") ? "আজকের মিশন" : "Today’s mission";
+  }
+
+  // Week number helper (ISO week)
+  function getISOWeek(d) {
+    const date = new Date(Date.UTC(d.getFullYear(), d.getMonth(), d.getDate()));
+    const dayNum = date.getUTCDay() || 7;
+    date.setUTCDate(date.getUTCDate() + 4 - dayNum);
+    const yearStart = new Date(Date.UTC(date.getUTCFullYear(),0,1));
+    return Math.ceil((((date - yearStart) / 86400000) + 1) / 7);
+  }
+
+  const missions = [
+    {
+      en: "Mission 1: Find 3 examples of AI in your daily life (phone camera, YouTube, maps). Write them down and bring them next class.",
+      bn: "মিশন ১: দৈনন্দিন জীবনে AI-এর ৩টি উদাহরণ খুঁজে বের করুন (ফোন ক্যামেরা, ইউটিউব, ম্যাপস)। লিখে রাখুন এবং পরের ক্লাসে বলুন।"
+    },
+    {
+      en: "Mission 2: Create 3 smart questions you want to ask a chatbot. Bring them next Monday.",
+      bn: "মিশন ২: একটি চ্যাটবটকে জিজ্ঞেস করার মতো ৩টি স্মার্ট প্রশ্ন লিখুন। পরের সোমবার নিয়ে আসুন।"
+    },
+    {
+      en: "Mission 3: Think of one problem in school that AI could help solve. Describe it in 2–3 lines.",
+      bn: "মিশন ৩: স্কুলের এমন একটি সমস্যা ভাবুন যেখানে AI সাহায্য করতে পারে। ২–৩ লাইনে লিখুন।"
+    },
+    {
+      en: "Mission 4: Prompt Challenge! Write one prompt to generate a story about a robot student in SIS. (We’ll test prompts in class.)",
+      bn: "মিশন ৪: প্রম্পট চ্যালেঞ্জ! SIS-এর একজন রোবট শিক্ষার্থী নিয়ে একটি গল্প তৈরির জন্য একটি প্রম্পট লিখুন। (ক্লাসে টেস্ট করবো।)"
+    },
+    {
+      en: "Mission 5: Teamwork prep — choose a role you like: Designer, Builder, Tester, Presenter. Tell me your role next class.",
+      bn: "মিশন ৫: টিমওয়ার্ক প্রস্তুতি—আপনি কোন ভূমিকা পছন্দ করেন: Designer, Builder, Tester, Presenter। পরের ক্লাসে বলুন।"
+    }
+  ];
+
+  function todaysMissionText() {
+    const now = new Date();
+    const week = getISOWeek(now);
+    const m = missions[week % missions.length];
+    return (lang === "bn")
+      ? "🎯 " + m.bn
+      : "🎯 " + m.en;
+  }
+
+  // Knowledge base (bilingual)
+  const knowledgeBase = [
+    {
+      keys: ["what is ai talent club", "ai talent club", "club", "ai talent"],
+      answer: () => withName(
+        "Hi {name}! 👋 Welcome to AI Talent Club.\nHere we learn AI through fun activities and projects. You’ll explore how AI works, use safe AI tools, and build something like a chatbot or mini app idea by the end of the term.",
+        "হাই {name}! 👋 AI Talent Club-এ স্বাগতম।\nএখানে আমরা মজা করে AI শিখি এবং প্রজেক্ট করি। AI কীভাবে কাজ করে বুঝবো, নিরাপদভাবে AI টুল ব্যবহার করবো, এবং টার্মের শেষে চ্যাটবট বা ছোট AI অ্যাপ আইডিয়া বানাবো।"
+      )
+    },
+    {
+      keys: ["when is the class", "class time", "time", "monday", "ক্লাস কখন", "সময়", "সোমবার"],
+      answer: () => withName(
+        "📅 {name}, our club meets every Monday, 2:10 pm – 2:50 pm.\nEach session is short, fun, and project-based!",
+        "📅 {name}, আমাদের ক্লাব প্রতি সোমবার, ২:১০ – ২:৫০ (বিকাল)।\nপ্রতিটি সেশন ছোট, মজার এবং প্রজেক্ট-ভিত্তিক!"
+      )
+    },
+    {
+      keys: ["what will we make", "make in 3 months", "projects", "end of term", "কী বানাবো", "৩ মাসে", "প্রজেক্ট"],
+      answer: () => withName(
+        "🚀 By the end of 3 months, {name}, you can create:\n• A simple chatbot (welcome/quiz/helper)\n• An AI creative project (story/poster/game idea)\n• A mini AI app concept (problem → AI solution)\nAnd you’ll present it in our mini showcase!",
+        "🚀 ৩ মাস শেষে, {name}, আপনি বানাতে পারবেন:\n• একটি সহজ চ্যাটবট (ওয়েলকাম/কুইজ/হেল্পার)\n• একটি AI ক্রিয়েটিভ প্রজেক্ট (গল্প/পোস্টার/গেম আইডিয়া)\n• একটি ছোট AI অ্যাপ কনসেপ্ট (সমস্যা → AI সমাধান)\nএবং আমাদের মিনি শোকেসে প্রেজেন্ট করবেন!"
+      )
+    },
+    {
+      keys: ["laptops", "40 students", "rotation", "how do laptops work", "ল্যাপটপ", "৪০", "রোটেশন"],
+      answer: () => withName(
+        "💻 Great question, {name}.\nWe use a rotation system:\n• Laptop Zone: small group tries AI\n• Activity Zone: card/paper games (AI thinking)\n• Challenge Zone: puzzles + design tasks\nThen groups rotate so everyone gets a turn.",
+        "💻 দারুণ প্রশ্ন, {name}।\nআমরা রোটেশন সিস্টেম ব্যবহার করি:\n• Laptop Zone: ছোট গ্রুপ AI ট্রাই করে\n• Activity Zone: কার্ড/পেপার গেম (AI চিন্তা)\n• Challenge Zone: পাজল + ডিজাইন টাস্ক\nতারপর গ্রুপ ঘুরে ঘুরে সবাই সুযোগ পায়।"
+      )
+    },
+    {
+      keys: ["what should i do at home", "homework", "practice", "at home", "বাড়িতে", "হোমওয়ার্ক", "প্র্যাকটিস"],
+      answer: () => withName(
+        "{name}, try one small challenge at home:\n1) Notice 3 places you see AI.\n2) Write 2 questions to ask next class.\n3) Bring one idea: a school problem AI could help solve.",
+        "{name}, বাড়িতে ছোট একটি চ্যালেঞ্জ করুন:\n1) AI কোথায় কোথায় দেখেন—৩টি উদাহরণ লিখুন।\n2) পরের ক্লাসে জিজ্ঞেস করার ২টি প্রশ্ন লিখুন।\n3) স্কুলের একটি সমস্যা ভাবুন যেখানে AI সাহায্য করতে পারে।"
+      )
+    },
+    {
+      keys: ["rules", "safe", "safety", "ethics", "নিয়ম", "নিরাপদ", "এথিক্স"],
+      answer: () => withName(
+        "✅ AI Safety Rules, {name}:\n• Be respectful\n• Don’t share personal info\n• Use AI to learn—not to cheat\n• If something feels wrong, tell the teacher",
+        "✅ AI নিরাপত্তা নিয়ম, {name}:\n• ভদ্র ও সম্মানজনক থাকুন\n• ব্যক্তিগত তথ্য শেয়ার করবেন না\n• শেখার জন্য AI ব্যবহার করুন—চিটিং নয়\n• কিছু অস্বস্তিকর মনে হলে শিক্ষককে বলুন"
+      )
+    }
+  ];
+
+  function matchKB(input) {
+    const t = normalize(input);
+    for (const item of knowledgeBase) {
+      for (const k of item.keys) {
+        if (t.includes(normalize(k))) return item.answer();
+      }
+    }
+    return "";
+  }
+
+  function botReply(userText) {
+    // Name capture
+    const maybeName = extractName(userText);
+    if (maybeName) {
+      studentName = maybeName;
+      localStorage.setItem(NAME_KEY, studentName);
+      return withName(
+        "Nice to meet you, {name}! 🎉 I’ll remember your name on this device.\nTry asking: “What will we make in 3 months?”",
+        "ভালো লাগলো, {name}! 🎉 আমি এই ডিভাইসে আপনার নাম মনে রাখবো।\nজিজ্ঞেস করুন: “৩ মাসে কী বানাবো?”"
+      );
+    }
+
+    // Ask name if missing
+    if (!studentName) {
+      return (lang === "bn")
+        ? "AI Talent Club-এ স্বাগতম! 👋\nআপনার নাম কী?\n(লিখুন: “আমার নাম ____”)"
+        : "Welcome to AI Talent Club! 👋\nWhat’s your name?\n(Type: “My name is ____”)";
+    }
+
+    // Mission requests
+    const t = normalize(userText);
+    if (t.includes("mission") || t.includes("today's mission") || t.includes("আজকের মিশন") || t.includes("মিশন")) {
+      return todaysMissionText();
+    }
+
+    // KB answer
+    const kb = matchKB(userText);
+    if (kb) return kb;
+
+    // Default
+    return withName(
+      "Thanks, {name}! 👍\nI can help with:\n• Club info (time, rules, projects)\n• AI basics (data, learning, chatbots)\nClick “Today’s mission” for your weekly challenge.",
+      "ধন্যবাদ, {name}! 👍\nআমি সাহায্য করতে পারি:\n• ক্লাব তথ্য (সময়, নিয়ম, প্রজেক্ট)\n• AI বেসিক (ডাটা, লার্নিং, চ্যাটবট)\nসাপ্তাহিক চ্যালেঞ্জের জন্য “আজকের মিশন” চাপুন।"
+    );
+  }
+
+  function send() {
+    const text = msgEl.value.trim();
+    if (!text) return;
+    addBubble(text, "user");
+    msgEl.value = "";
+
+    // Typing indicator + delayed response
+    const typingBubble = addTypingBubble();
+    const delay = 450 + Math.floor(Math.random() * 450);
+
+    setTimeout(() => {
+      const reply = botReply(text);
+      typingBubble.textContent = reply; // replace typing bubble with final text
+      chatEl.scrollTop = chatEl.scrollHeight;
+    }, delay);
+  }
+
+  function boot() {
+    addBubble(lang === "bn"
+      ? "👋 হ্যালো! আমি SIS AI Talent Club-এর Teacher Assistant।"
+      : "👋 Hello! I’m the SIS AI Talent Club Teacher Assistant."
+    );
+
+    if (studentName) {
+      addBubble(withName(
+        "Welcome back, {name}! Ask me anything—or click “Today’s mission”.",
+        "আবার স্বাগতম, {name}! কিছু জিজ্ঞেস করুন—অথবা “আজকের মিশন” চাপুন।"
+      ));
+    } else {
+      addBubble(lang === "bn"
+        ? "শুরু করার আগে—আপনার নাম কী?\nলিখুন: “আমার নাম ____”"
+        : "Before we start — what’s your name?\nType: “My name is ____”"
+      );
+    }
+  }
+
+  // Events
+  sendEl.addEventListener('click', send);
+  msgEl.addEventListener('keydown', (e) => { if (e.key === "Enter") send(); });
+
+  resetBtn.addEventListener('click', () => {
+    localStorage.removeItem(NAME_KEY);
+    studentName = "";
+    chatEl.innerHTML = "";
+    boot();
+  });
+
+  enBtn.addEventListener('click', () => setLang("en"));
+  bnBtn.addEventListener('click', () => setLang("bn"));
+
+  missionBtn.addEventListener('click', () => {
+    // Show mission with typing indicator too
+    const typingBubble = addTypingBubble();
+    const delay = 350 + Math.floor(Math.random() * 350);
+    setTimeout(() => {
+      typingBubble.textContent = todaysMissionText();
+      chatEl.scrollTop = chatEl.scrollHeight;
+    }, delay);
+  });
+
+  // Init
+  setLang(lang);
+  boot();
+</script>
+</body>
+</html>
